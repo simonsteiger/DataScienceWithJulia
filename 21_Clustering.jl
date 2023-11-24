@@ -14,63 +14,51 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ 0b0acaad-33da-4d59-afef-0bec5e97c43b
+# ╔═╡ 5cb9fcc0-e413-4583-a99e-caf1da9b4f1a
 using Downloads
 
-# ╔═╡ 1ad38f27-1900-4130-83fb-ab760a9416b0
+# ╔═╡ aae4f172-636d-4b98-be05-354bd5e1cd5c
 using SHA
 
-# ╔═╡ 8b0b7f5c-2818-404a-9711-332c6e343e4d
+# ╔═╡ 68d154e5-c6f5-4362-896b-7320ad79b038
 using CSV, DataFrames
 
-# ╔═╡ cf65b5fc-5bd5-48e3-b322-a12dca0f3718
-using Chain, StatsPlots
+# ╔═╡ dc8e8f65-99a4-4714-8956-6168b55890fd
+using LinearAlgebra, Chain
 
-# ╔═╡ 67e6f258-592e-4426-b34f-7d1cdf3ee54b
+# ╔═╡ bd44cdb2-1838-4d07-8cf8-8be7005ef1cb
+using StatsPlots, StatsBase
+
+# ╔═╡ 828df9b7-baeb-4a18-ae7e-430df4de750e
 using PlutoUI
 
-# ╔═╡ b570508e-42d2-4069-ba82-0f219d5f58bf
-using Arrow
-
-# ╔═╡ aaad98be-8918-11ee-34cc-3f760fd431bc
+# ╔═╡ 434bde5e-8aa0-11ee-3754-b1dcab18fb02
 md"""
-# Milestone 2: Data Wrangling
+# Milestone 1: K-means and DBSCAN
 
 In this script, I will
 
-- explore the data
-- clean the data for later modeling
+- inspect and prepare the `Sales` dataset for clustering
+- explore and analyze the structure of the data
 
-!!! danger "Bias in ML"
-	Training models based on sociodemographic features (such as gender, ethnicity, and race) may be prohibited by law for use in machine learning (ML) models as it is often unethical and promotes existing bias. The authors recommend several resources, such as:
-	- resources on [Responsible AI](https://www.microsoft.com/en-us/ai/responsible-ai). 
-	- [Mitigate Machine Learning Bias: A Health Data Project](https://www.manning.com/liveproject/mitigate-machine-learning-bias-a-health-data-project)
-	- [Mitigate Machine Learning Bias in Mortgage Lending Data](https://www.manning.com/liveprojectseries/mitigate-machine-learning-bias-in-mortgage-lending-data-ser)
-	- [Weapons of Math Destruction](https://en.wikipedia.org/wiki/Weapons_of_Math_Destruction) by Cathy O’Neil.
+!!! danger "Clustering and data quality"
+	Before any modeling (both clustering and otherwise), we must be confident in the data's quality and its input format (e.g., missingness). Making the best possible choices here has downstream consequences for our clustering results.
+
+## 1. Download data
+
+We will use `Sales_Transactions_Dataset_Weekly.csv` from the [UCI repository](https://archive.ics.uci.edu/ml/machine-learning-databases/00396/Sales_Transactions_Dataset_Weekly.csv). More information is available on [this website](https://archive.ics.uci.edu/dataset/396/sales+transactions+dataset+weekly). Download the files from the internet, but only if they are not already present in the local folder.
 """
 
-# ╔═╡ fc6d97c0-f4c6-4f65-845a-f1c86f493a6d
-md"""
-## 1. Downloading data
-
-Use the `adult.data` file from the [UCI repository](https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data). You can learn more about the dataset from the “adult.names” file, also available from the [UCI data repository](https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.names). You should download the “adult.data” file from the internet using Julia. (Make sure to download it only if it is not already present in the local folder). For this dataset, notice that there is also an `adult.test` file in the repository. A train/test data split was already done for us, and we should keep that in mind during the modeling process. In this milestone we will work with the training data only.
-"""
-
-# ╔═╡ 948a3be2-1e98-4c43-beb7-e1aab610e1b4
-begin 
+# ╔═╡ eb8c5621-2e8a-4e20-ab9f-1c6549764aef
+begin
 	const URL = "https://archive.ics.uci.edu/ml" *
-			"/machine-learning-databases/adult/adult.data"
+			"/machine-learning-databases/00396/Sales_Transactions_Dataset_Weekly.csv"
 
-	const FILENAME = "adult.txt"
+	const FILENAME = "sales_transactions_weekly.txt"
 	const FILEPATH = joinpath(@__DIR__, "data", FILENAME)
-	
-	const COLNAMES = [:age, :workclass, :fnlwgt, :education,
-				  :education_num, :marital_status, :occupation,
-				  :relationship, :race, :sex, :capital_gain, :capital_loss,
-				  :hours_per_week, :native_country, :target]
-end;
+end
 
-# ╔═╡ 6e4e2878-e36a-46eb-8b4b-87aae3dcd72d
+# ╔═╡ c2ba66d0-eebf-4275-97ca-323fb8b92fab
 if isfile(FILEPATH)
 	@info "$FILENAME found. Skipping download."
 else
@@ -79,221 +67,156 @@ else
 	Downloads.download(URL, FILEPATH)
 end
 
-# ╔═╡ 95368a91-9475-41aa-84ba-11ef793f6a4d
+# ╔═╡ a783b2b7-7cef-4e2c-bd71-155e702718bf
 md"""
-## 2. Check SHA1 hash
+## 2. Verify SHA1 hash
 
-Check that the file has been fetched correctly by calculating its `SHA1` hash, and compare it to the following reference value:
+Check that the file has been fetched correctly by calculating its SHA1 hash, and compare it to the following reference value:
 """
 
-# ╔═╡ 242a84b6-4163-44d8-b4fc-058b2ac675e4
-const ADULT_SHA1 = [0xee, 0x86, 0xbb, 0xe5, 0x56,
- 					0x57, 0x8f, 0x70, 0x9a, 0xe0,
- 					0xfd, 0x00, 0x2a, 0xc5, 0x8a,
- 					0xc9, 0x37, 0x26, 0x48, 0x2f];
+# ╔═╡ 62507a5c-f412-452e-9e0f-e94d5fda3505
+const SALES_SHA1 = [0x07, 0xa7, 0x28, 0x88, 0x1e,
+ 			  0xd7, 0x06, 0xac, 0xfc, 0x88,
+ 			  0x04, 0xb6, 0xce, 0x7d, 0x06,
+ 			  0xca, 0x2c, 0x65, 0x11, 0x90]
 
-# ╔═╡ 734dfebc-d302-4824-8ef8-ddd7f28984a0
-if open(sha1, FILEPATH) == ADULT_SHA1
+# ╔═╡ ee62356d-6573-4f50-910f-48189f80fb4a
+if open(sha1, FILEPATH) == SALES_SHA1
 	@info "SHA1 check of $FILENAME passed."
 else
 	error("$FILENAME file has an invalid SHA1. Aborting!")
 end
 
-# ╔═╡ 0c2b8ed4-5a73-4c56-9a86-fe0b73a19a99
+# ╔═╡ 161eb493-4251-4439-b106-26183503d86f
 md"""
-## 3. Loading data
+## 3. Jupyter configuration
 
-Load the data into Julia’s `DataFrame`. Note that missing values are denoted by `?` in the CSV files.
+!!! danger "Using Pluto.jl"
+	Skipping this because I am working in Pluto.jl.
 """
 
-# ╔═╡ f16e6251-0dae-4001-95f3-21ab43abc17e
-adult_ref = CSV.read(FILEPATH, header=COLNAMES, DataFrame, delim=',', ignorerepeated=true);
-
-# ╔═╡ db870863-dd73-4665-abab-15fc4c7e3b58
-adult = copy(adult_ref)
-
-# ╔═╡ c068495e-cf0b-4b6b-9306-0ebc2c8f387e
-md"Looks like all the strings have a leading whitespace!"
-
-# ╔═╡ 7afc5c9b-4e7c-4528-912a-1613ff9d1ecc
-transform!(adult, Cols(names(adult, AbstractString)) .=> ByRow(x -> replace(x, r"^\s" => "")) => identity)
-
-# ╔═╡ f0efc3d8-3452-4731-8951-cc6d3bc15052
+# ╔═╡ b5f3f110-36c2-435e-9a1e-efcb16f8629f
 md"""
-## 4. Column number in Jupyter Notebooks
+## 4. Loading data
 
-Adjust the number of columns printed by Jupyter Notebook to 200 and the number of rows to 20. This is an often needed quality of life adjustment that will allow you to display tabular data in friendlier way.
-
-!!! danger "Not ipynb"
-	Skipped because DataFrames print nicely in Pluto.jl.
+Load the data into a `DataFrame`. Examine the basic descriptive statistics of the dataset.
 """
 
-# ╔═╡ fc61d200-f7b3-421f-86b3-cd8de077b554
-md"""
-## 5. Dropping variables
+# ╔═╡ ad688c6d-568e-499a-9ed6-b71816e90436
+sales_ref = CSV.read(FILEPATH, DataFrame);
 
-Drop the `fnlwgt` variable from the analysis, as we will not use this technical column during prediction on our database.
+# ╔═╡ 0bbb4932-7645-4728-b410-e9e39ffa5447
+sales = copy(sales_ref);
+
+# ╔═╡ ceab62f1-164f-4ff9-a789-2be89cf0aeb7
+describe(sales)
+
+# ╔═╡ 8498657a-d4f3-44e7-932d-2dcd78ca1268
+md"""
+## 5. Jupyter configuration
+
+!!! danger "Using Pluto.jl"
+	Skipping this because I am working in Pluto.jl.
 """
 
-# ╔═╡ 6b87fd10-3483-42ad-9766-0b921ae7d978
-select!(adult, Not(:fnlwgt));
-
-# ╔═╡ dfb8de4a-4934-4394-8f17-6ccd4f68beeb
+# ╔═╡ add96df8-389f-4f13-acc5-34df141c3415
 md"""
-## 6. Basic descriptives
+## 6. Normalize columns
 
-Examine the basic descriptive statistics of the training dataset using the `describe` function. We plan to use tree-based models capable of handling missing values, so we can leave this data as-is. Missing values are often either imputed or removed from the dataset, but it’s important to think holistically about the modeling process and take further steps into account.
+The data is in the wide format and contains sales values for 52 weeks and 811 products. There are already normalized versions of these 52 columns, but we want to double-check that these are correct. The normalization should ensure that the range of values for each product falls into the `[0, 1]` interval.
 """
 
-# ╔═╡ ddd49383-a7dd-4c94-9e30-b3924c86c681
-describe(adult)
+# ╔═╡ 6f1fe171-ca54-40ab-bdec-e56a5c4baa91
+sales_defaultnorm = select(sales, Cols(:Product_Code, r"Normalized")) |> stack;
 
-# ╔═╡ 42adf657-b640-4a99-9748-e26b65c4e9bd
-md"""
-## 7. Names of categorical variables
+# ╔═╡ 00c07ba9-3c5f-4e16-a5fc-a656975fafba
+sales_raw = select(sales, Cols(:Product_Code, r"W\d+"));
 
-Get a list of qualitative (categorical) variables in this dataset. They are represented by string values.
-"""
+# ╔═╡ 93c9dce6-b6ea-4932-a8ad-c016d30c95d5
+transform!(sales_raw, Cols(names(sales_raw, Int64)) .=> (x -> Float64.(x)) => identity)
 
-# ╔═╡ 1d349ce9-ec98-40ab-a8d2-95a8d4244adf
-categoricalvars = names(adult, AbstractString)
-
-# ╔═╡ c9e92201-c0f9-49b0-91b3-a29008ad4e64
-md"Let's also get the continuous ones while we're at it."
-
-# ╔═╡ 68ddce25-538a-4c4a-a9a8-65006e815052
-continuousvars = names(adult, Number)
-
-# ╔═╡ 3d52dadf-1c46-42e4-b902-4975d209ea03
-md"""
-## 8. Distributions of categorical varialbes
-
-Explore the size of each category for qualitative variables by producing bar plots and frequency tables. Analysis shows that we have a problem with imbalanced features, which may affect the quality of the produced model.
-"""
-
-# ╔═╡ 8cad1ff3-d67b-45e7-9e9d-b9ebd5feb098
-ps = map(categoricalvars) do x
-	tmp = @chain adult begin
-		groupby(_, x)
-		combine(_, nrow)
-	end
-	bar(eachindex(tmp.nrow), tmp.nrow, orientation=:h, title=x)
-	ylims!(extrema(eachindex(tmp.nrow)))
-	yticks!(eachindex(tmp.nrow), tmp[!, x])
+# ╔═╡ 3e1eb3b1-4efd-493e-b0a1-d0558c6edb89
+sales_mynorm = @chain sales_raw begin 
+	stack(_)
+	groupby(_, :Product_Code)
+	transform(_, :value => normalize => identity)
 end
 
-# ╔═╡ af6185e4-6f36-4d8e-996d-b15be944ddef
+# ╔═╡ 72a6d25a-cea5-49cf-8ead-b08b060c84ec
+@chain [sales_defaultnorm, sales_mynorm] begin
+	groupby.(_, :Product_Code)
+	transform.(_, :value => norm => identity)
+end
+
+# ╔═╡ 35fd4f8c-43e0-4720-b596-505789a0d96b
+md"Seems I have misunderstood normalization. Think again. Probably need to use min/max to normalize..."
+
+# ╔═╡ bdd0b7f7-917b-41e1-a37a-8e66477f8c6b
+md"""
+## 7. Histograms
+
+
+Check the properties of the normalized columns relevant to the clustering process. Produce histograms of the means and standard deviations for the normalized columns.
+"""
+
+# ╔═╡ 5e5e62ad-237e-4638-bf2a-b2c5a00c06ca
+df_summary = 
+	map([sales_defaultnorm, sales_mynorm]) do df
+		@chain df begin
+			groupby(_, :Product_Code)
+			combine(_, :value => (x -> (mean=mean(x), std=std(x))) => AsTable)
+		end
+	end
+
+# ╔═╡ 27e7108d-22cd-4765-929c-162793e45dc2
 begin
-	pslider = @bind idx Slider(collect(eachindex(ps)))
+	normidx = @bind idx Slider(eachindex(df_summary))
+
 	md"""
-	Use this slider to change the plot you are viewing.
-	
-	$(pslider)
+	Pick plot: $(normidx)
+
+	Looks like something is wrong with what I understood as "normalize".
 	"""
 end
 
-# ╔═╡ 6f5ff1b7-e5c2-413d-a681-2adf4e03a21a
-md"You are viewing plot $(idx): $(categoricalvars[idx])"
+# ╔═╡ eac3272b-d0a9-49b7-904d-402ef4195099
+plot(histogram.([df_summary[idx].mean, df_summary[idx].std])...)
 
-# ╔═╡ d25d0b4c-411c-4ed5-9b96-009bceff68fb
-ps[idx]
-
-# ╔═╡ bf0f935c-c507-44a0-a8a5-994d3867a437
-md"Missing frequency tables so far."
-
-# ╔═╡ a98d3cea-313c-4f5e-a933-05edb0bd9a78
+# ╔═╡ d1b26587-5013-45da-911b-fe4a98686a5c
 md"""
-## 9. Collapsing levels
+## 8. Timeseries of extreme means
 
-Collapse the classes in `native_country` to `United-States` and `not-United-States`. Check the resulting distribution of the variable. Such transformations to collapse several levels into one in the features are quite common in practice.
+Inspect the normalized data further. Plot the normalized time series with the lowest and highest mean.
 """
 
-# ╔═╡ 772be4bc-7390-4089-b9be-7c3ac7aeabff
-transform!(adult, :native_country => ByRow(x -> x == "United-States" ? x : "not-United-States") => identity)
+# ╔═╡ 1b7ba29f-59a3-4206-84aa-26533d85103c
+highest = subset(df_summary[1], :mean => (x -> x .== maximum(x))).Product_Code
 
-# ╔═╡ d65f2ae9-14e5-483e-bf9c-555e40c8590b
-md"""
-## 10. Two-way table
-
-Create a two-way table for `maritial_status` and `relationship` to check how closely they are related and whether they are consistent.
-"""
-
-# ╔═╡ fa139151-21f1-4458-9358-b206a2b75d1f
-@chain adult begin
-	groupby(_, [:relationship, :marital_status])
-	combine(_, nrow)
-	unstack(_, :relationship, :nrow)
+# ╔═╡ 0042b894-772d-48ef-8514-d304f3ce5350
+@chain sales_defaultnorm begin
+	subset(_, :Product_Code => ByRow(x -> x == highest...))
+	plot(eachindex(_.value), _.value)
 end
-
-# ╔═╡ 58577126-58ba-4f22-b3aa-ebcdcdf362ef
-md"""
-## 11. Distributions of continuous variables
-
-Prepare histograms of all the continuous variables in the dataset. Analyze the distribution of `capital_gain`. What conclusions can be drawn? (As in the case of missing values, we do not transform this variable since it should be possible to handle it as-is in the machine learning models we plan to use.)
-"""
-
-# ╔═╡ d957e70d-0b93-4760-9eb2-9bac9253fb0c
-plot(
-	map(continuousvars) do x
-		histogram(adult[!, x], legend=false, title=x)
-	end...,
-	layout=(3, 2),
-	size=(800, 1000)
-)
-
-# ╔═╡ dd1523b4-7887-46a5-8a81-c564ae5ec413
-md"""
-## 12. Probability of zeros
-
-For the `capital_gain` and `capital_loss` variables, calculate the probability of `0`.
-"""
-
-# ╔═╡ c1425041-bbfa-4188-b638-0d8df65063e8
-map([:capital_gain, :capital_loss]) do x
-	sum(adult[!, x] .== 0) / nrow(adult)
-end
-
-# ╔═╡ 91910438-1d8c-4475-8aa1-14e01069169f
-md"""
-## 13. Conditional probability of zero
-
-Calculate the probability of `capital_gain` and `capital_loss` equal to 0 conditional on the value of `target`. What conclusions can be drawn?
-"""
-
-# ╔═╡ 5e5fa0ba-cd1b-4562-b46d-f904187c7921
-@chain adult begin
-	groupby(_, :target)
-	combine(_, Cols(r"capital") .=> (x -> sum(x .== 0) / length(x)) => (x -> "freq0_$x"))
-end
-
-# ╔═╡ 944781d8-04a6-4cfa-b39b-3095f8f19e16
-md"""
-## 14. Save
-
-Save the final dataset in [Apache Arrow](https://arrow.apache.org/) format. We'll use it in later projects in the series.
-"""
-
-# ╔═╡ 83002fa7-75be-47c9-acac-9eec6e029a20
-Arrow.write("/Users/simonsteiger/Desktop/other/Manning/data/adult.arrow", adult)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
-Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 
 [compat]
-Arrow = "~2.6.2"
 CSV = "~0.10.11"
 Chain = "~0.5.0"
 DataFrames = "~1.6.1"
 PlutoUI = "~0.7.54"
+StatsBase = "~0.34.2"
 StatsPlots = "~0.15.6"
 """
 
@@ -303,7 +226,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.4"
 manifest_format = "2.0"
-project_hash = "19def68b885cd79089d81990fc3cd6aa5c088cfb"
+project_hash = "dc74796d91afcc70d65e8a3b662390ee4fa950b9"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -318,9 +241,9 @@ weakdeps = ["ChainRulesCore", "Test"]
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
-git-tree-sha1 = "559826a2e9fe0c4434982e0fc72b675fda8028f9"
+git-tree-sha1 = "793501dcd3fa7ce8d375a2c878dca2296232686e"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.2.1"
+version = "1.2.2"
 
 [[deps.Adapt]]
 deps = ["LinearAlgebra", "Requires"]
@@ -348,18 +271,6 @@ git-tree-sha1 = "5ba6c757e8feccf03a1554dfaf3e26b3cfc7fd5e"
 uuid = "68821587-b530-5797-8361-c406ea357684"
 version = "3.5.1+1"
 
-[[deps.Arrow]]
-deps = ["ArrowTypes", "BitIntegers", "CodecLz4", "CodecZstd", "ConcurrentUtilities", "DataAPI", "Dates", "EnumX", "LoggingExtras", "Mmap", "PooledArrays", "SentinelArrays", "Tables", "TimeZones", "TranscodingStreams", "UUIDs"]
-git-tree-sha1 = "954666e252835c4cf8819ce4ffaf31073c1b7233"
-uuid = "69666777-d1a9-59fb-9406-91d4454c9d45"
-version = "2.6.2"
-
-[[deps.ArrowTypes]]
-deps = ["Sockets", "UUIDs"]
-git-tree-sha1 = "8c37bfdf1b689c6677bbfc8986968fe641f6a299"
-uuid = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
-version = "2.2.2"
-
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
@@ -377,22 +288,11 @@ git-tree-sha1 = "2dc09997850d68179b69dafb58ae806167a32b1b"
 uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
 version = "0.1.8"
 
-[[deps.BitIntegers]]
-deps = ["Random"]
-git-tree-sha1 = "a55462dfddabc34bc97d3a7403a2ca2802179ae6"
-uuid = "c3b6d118-76ef-56ca-8cc7-ebb389d030a1"
-version = "0.3.1"
-
 [[deps.Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "19a35467a82e236ff51bc17a3a44b69ef35185a2"
 uuid = "6e34b625-4abd-537c-b88f-471c36dfa7a0"
 version = "1.0.8+0"
-
-[[deps.CEnum]]
-git-tree-sha1 = "eb4cb44a499229b3b8426dcfb5dd85333951ff90"
-uuid = "fa961155-64e5-5f13-b03f-caf6b980ea82"
-version = "0.4.2"
 
 [[deps.CSV]]
 deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers", "PooledArrays", "PrecompileTools", "SentinelArrays", "Tables", "Unicode", "WeakRefStrings", "WorkerUtilities"]
@@ -433,23 +333,11 @@ git-tree-sha1 = "05f9816a77231b07e634ab8715ba50e5249d6f76"
 uuid = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
 version = "0.15.5"
 
-[[deps.CodecLz4]]
-deps = ["Lz4_jll", "TranscodingStreams"]
-git-tree-sha1 = "8bf4f9e2ee52b5e217451a7cd9171fcd4e16ae23"
-uuid = "5ba52731-8f18-5e0d-9241-30f10d1ec561"
-version = "0.4.1"
-
 [[deps.CodecZlib]]
 deps = ["TranscodingStreams", "Zlib_jll"]
 git-tree-sha1 = "cd67fc487743b2f0fd4380d4cbd3a24660d0eec8"
 uuid = "944b1d66-785c-5afd-91f1-9de20f533193"
 version = "0.7.3"
-
-[[deps.CodecZstd]]
-deps = ["CEnum", "TranscodingStreams", "Zstd_jll"]
-git-tree-sha1 = "849470b337d0fa8449c21061de922386f32949d9"
-uuid = "6b39b394-51ab-5f42-8807-6242bab2b4c2"
-version = "0.7.2"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
@@ -590,11 +478,6 @@ git-tree-sha1 = "5837a837389fccf076445fce071c8ddaea35a566"
 uuid = "fa6b7ba4-c1ee-5f82-b5fc-ecf0adba8f74"
 version = "0.6.8"
 
-[[deps.EnumX]]
-git-tree-sha1 = "bdb1942cd4c45e3c678fd11569d5cccd80976237"
-uuid = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
-version = "1.0.4"
-
 [[deps.EpollShim_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "8e9441ee83492030ace98f9789a654a6d0b1f643"
@@ -612,11 +495,6 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "4558ab818dcceaab612d1bb8c19cee87eda2b83c"
 uuid = "2e619515-83b5-522b-bb60-26c02a35a201"
 version = "2.5.0+0"
-
-[[deps.ExprTools]]
-git-tree-sha1 = "27415f162e6028e81c72b82ef756bf321213b6ec"
-uuid = "e2ba6199-217a-4e67-a87a-7c52f15ade04"
-version = "0.1.10"
 
 [[deps.FFMPEG]]
 deps = ["FFMPEG_jll"]
@@ -986,12 +864,6 @@ git-tree-sha1 = "c1dd6d7978c12545b4179fb6153b9250c96b0075"
 uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
 version = "1.0.3"
 
-[[deps.Lz4_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "6c26c5e8a4203d43b5497be3ec5d4e0c3cde240a"
-uuid = "5ced341a-0733-55b8-9ab6-a4889d929147"
-version = "1.9.4+0"
-
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
@@ -1015,9 +887,9 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 
 [[deps.MbedTLS]]
 deps = ["Dates", "MbedTLS_jll", "MozillaCACerts_jll", "NetworkOptions", "Random", "Sockets"]
-git-tree-sha1 = "f512dc13e64e96f703fd92ce617755ee6b5adf0f"
+git-tree-sha1 = "c067a280ddc25f196b5e7df3877c6b226d390aaf"
 uuid = "739be429-bea8-5141-9913-cc70e7f3736d"
-version = "1.1.8"
+version = "1.1.9"
 
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1037,12 +909,6 @@ version = "1.1.0"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
-
-[[deps.Mocking]]
-deps = ["Compat", "ExprTools"]
-git-tree-sha1 = "4cc0c5a83933648b615c36c2b956d94fda70641e"
-uuid = "78c3b35d-d492-501b-9361-3d52fe80e533"
-version = "0.7.7"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
@@ -1122,9 +988,9 @@ uuid = "91d4177d-7536-5919-b921-800302f37372"
 version = "1.3.2+0"
 
 [[deps.OrderedCollections]]
-git-tree-sha1 = "2e73fe17cac3c62ad1aebe70d44c963c3cfdc3e3"
+git-tree-sha1 = "dfdf5519f235516220579f949664f1bf44e741c5"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-version = "1.6.2"
+version = "1.6.3"
 
 [[deps.PCRE2_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1133,9 +999,9 @@ version = "10.42.0+0"
 
 [[deps.PDMats]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
-git-tree-sha1 = "f6f85a2edb9c356b829934ad3caed2ad0ebbfc99"
+git-tree-sha1 = "4e5be6bb265d33669f98eb55d2a57addd1eeb72c"
 uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
-version = "0.11.29"
+version = "0.11.30"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
@@ -1425,12 +1291,6 @@ deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
 
-[[deps.TZJData]]
-deps = ["Artifacts"]
-git-tree-sha1 = "d39314cdbaf5b90a047db33858626f8d1cc973e1"
-uuid = "dc5dba14-91b3-4cab-a142-028a31da12f7"
-version = "1.0.0+2023c"
-
 [[deps.TableOperations]]
 deps = ["SentinelArrays", "Tables", "Test"]
 git-tree-sha1 = "e383c87cf2a1dc41fa30c093b2a19877c83e1bc1"
@@ -1464,21 +1324,14 @@ version = "0.1.1"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
-[[deps.TimeZones]]
-deps = ["Artifacts", "Dates", "Downloads", "InlineStrings", "LazyArtifacts", "Mocking", "Printf", "Scratch", "TZJData", "Unicode", "p7zip_jll"]
-git-tree-sha1 = "89e64d61ef3cd9e80f7fc12b7d13db2d75a23c03"
-uuid = "f269a46b-ccf7-5d73-abea-4c690281aa53"
-version = "1.13.0"
-weakdeps = ["RecipesBase"]
-
-    [deps.TimeZones.extensions]
-    TimeZonesRecipesBaseExt = "RecipesBase"
-
 [[deps.TranscodingStreams]]
-deps = ["Random", "Test"]
-git-tree-sha1 = "9a6ae7ed916312b41236fcef7e0af564ef934769"
+git-tree-sha1 = "1fbeaaca45801b4ba17c251dd8603ef24801dd84"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
-version = "0.9.13"
+version = "0.10.2"
+weakdeps = ["Random", "Test"]
+
+    [deps.TranscodingStreams.extensions]
+    TestExt = ["Test", "Random"]
 
 [[deps.Tricks]]
 git-tree-sha1 = "eae1bb484cd63b36999ee58be2de6c178105112f"
@@ -1843,50 +1696,37 @@ version = "1.4.1+1"
 """
 
 # ╔═╡ Cell order:
-# ╟─aaad98be-8918-11ee-34cc-3f760fd431bc
-# ╟─fc6d97c0-f4c6-4f65-845a-f1c86f493a6d
-# ╠═948a3be2-1e98-4c43-beb7-e1aab610e1b4
-# ╠═0b0acaad-33da-4d59-afef-0bec5e97c43b
-# ╠═6e4e2878-e36a-46eb-8b4b-87aae3dcd72d
-# ╟─95368a91-9475-41aa-84ba-11ef793f6a4d
-# ╠═242a84b6-4163-44d8-b4fc-058b2ac675e4
-# ╠═1ad38f27-1900-4130-83fb-ab760a9416b0
-# ╠═734dfebc-d302-4824-8ef8-ddd7f28984a0
-# ╟─0c2b8ed4-5a73-4c56-9a86-fe0b73a19a99
-# ╠═8b0b7f5c-2818-404a-9711-332c6e343e4d
-# ╠═f16e6251-0dae-4001-95f3-21ab43abc17e
-# ╠═db870863-dd73-4665-abab-15fc4c7e3b58
-# ╟─c068495e-cf0b-4b6b-9306-0ebc2c8f387e
-# ╠═7afc5c9b-4e7c-4528-912a-1613ff9d1ecc
-# ╟─f0efc3d8-3452-4731-8951-cc6d3bc15052
-# ╟─fc61d200-f7b3-421f-86b3-cd8de077b554
-# ╠═6b87fd10-3483-42ad-9766-0b921ae7d978
-# ╟─dfb8de4a-4934-4394-8f17-6ccd4f68beeb
-# ╠═ddd49383-a7dd-4c94-9e30-b3924c86c681
-# ╟─42adf657-b640-4a99-9748-e26b65c4e9bd
-# ╠═1d349ce9-ec98-40ab-a8d2-95a8d4244adf
-# ╟─c9e92201-c0f9-49b0-91b3-a29008ad4e64
-# ╠═68ddce25-538a-4c4a-a9a8-65006e815052
-# ╟─3d52dadf-1c46-42e4-b902-4975d209ea03
-# ╠═cf65b5fc-5bd5-48e3-b322-a12dca0f3718
-# ╠═8cad1ff3-d67b-45e7-9e9d-b9ebd5feb098
-# ╠═67e6f258-592e-4426-b34f-7d1cdf3ee54b
-# ╠═af6185e4-6f36-4d8e-996d-b15be944ddef
-# ╟─6f5ff1b7-e5c2-413d-a681-2adf4e03a21a
-# ╠═d25d0b4c-411c-4ed5-9b96-009bceff68fb
-# ╟─bf0f935c-c507-44a0-a8a5-994d3867a437
-# ╟─a98d3cea-313c-4f5e-a933-05edb0bd9a78
-# ╠═772be4bc-7390-4089-b9be-7c3ac7aeabff
-# ╟─d65f2ae9-14e5-483e-bf9c-555e40c8590b
-# ╠═fa139151-21f1-4458-9358-b206a2b75d1f
-# ╟─58577126-58ba-4f22-b3aa-ebcdcdf362ef
-# ╠═d957e70d-0b93-4760-9eb2-9bac9253fb0c
-# ╟─dd1523b4-7887-46a5-8a81-c564ae5ec413
-# ╠═c1425041-bbfa-4188-b638-0d8df65063e8
-# ╟─91910438-1d8c-4475-8aa1-14e01069169f
-# ╠═5e5fa0ba-cd1b-4562-b46d-f904187c7921
-# ╟─944781d8-04a6-4cfa-b39b-3095f8f19e16
-# ╠═b570508e-42d2-4069-ba82-0f219d5f58bf
-# ╠═83002fa7-75be-47c9-acac-9eec6e029a20
+# ╟─434bde5e-8aa0-11ee-3754-b1dcab18fb02
+# ╠═eb8c5621-2e8a-4e20-ab9f-1c6549764aef
+# ╠═5cb9fcc0-e413-4583-a99e-caf1da9b4f1a
+# ╠═c2ba66d0-eebf-4275-97ca-323fb8b92fab
+# ╟─a783b2b7-7cef-4e2c-bd71-155e702718bf
+# ╠═62507a5c-f412-452e-9e0f-e94d5fda3505
+# ╠═aae4f172-636d-4b98-be05-354bd5e1cd5c
+# ╠═ee62356d-6573-4f50-910f-48189f80fb4a
+# ╟─161eb493-4251-4439-b106-26183503d86f
+# ╟─b5f3f110-36c2-435e-9a1e-efcb16f8629f
+# ╠═68d154e5-c6f5-4362-896b-7320ad79b038
+# ╠═ad688c6d-568e-499a-9ed6-b71816e90436
+# ╠═0bbb4932-7645-4728-b410-e9e39ffa5447
+# ╠═ceab62f1-164f-4ff9-a789-2be89cf0aeb7
+# ╟─8498657a-d4f3-44e7-932d-2dcd78ca1268
+# ╟─add96df8-389f-4f13-acc5-34df141c3415
+# ╠═dc8e8f65-99a4-4714-8956-6168b55890fd
+# ╠═6f1fe171-ca54-40ab-bdec-e56a5c4baa91
+# ╠═00c07ba9-3c5f-4e16-a5fc-a656975fafba
+# ╠═93c9dce6-b6ea-4932-a8ad-c016d30c95d5
+# ╠═3e1eb3b1-4efd-493e-b0a1-d0558c6edb89
+# ╠═72a6d25a-cea5-49cf-8ead-b08b060c84ec
+# ╟─35fd4f8c-43e0-4720-b596-505789a0d96b
+# ╟─bdd0b7f7-917b-41e1-a37a-8e66477f8c6b
+# ╠═bd44cdb2-1838-4d07-8cf8-8be7005ef1cb
+# ╠═5e5e62ad-237e-4638-bf2a-b2c5a00c06ca
+# ╠═828df9b7-baeb-4a18-ae7e-430df4de750e
+# ╟─27e7108d-22cd-4765-929c-162793e45dc2
+# ╠═eac3272b-d0a9-49b7-904d-402ef4195099
+# ╟─d1b26587-5013-45da-911b-fe4a98686a5c
+# ╠═1b7ba29f-59a3-4206-84aa-26533d85103c
+# ╠═0042b894-772d-48ef-8514-d304f3ce5350
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
