@@ -32,6 +32,9 @@ using StatsPlots, StatsBase
 # ╔═╡ 828df9b7-baeb-4a18-ae7e-430df4de750e
 using PlutoUI
 
+# ╔═╡ bec77350-694e-4707-a217-27094bf915c8
+using Arrow
+
 # ╔═╡ 434bde5e-8aa0-11ee-3754-b1dcab18fb02
 md"""
 # Milestone 1: K-means and DBSCAN
@@ -76,9 +79,9 @@ Check that the file has been fetched correctly by calculating its SHA1 hash, and
 
 # ╔═╡ 62507a5c-f412-452e-9e0f-e94d5fda3505
 const SALES_SHA1 = [0x07, 0xa7, 0x28, 0x88, 0x1e,
- 			  0xd7, 0x06, 0xac, 0xfc, 0x88,
- 			  0x04, 0xb6, 0xce, 0x7d, 0x06,
- 			  0xca, 0x2c, 0x65, 0x11, 0x90]
+ 			  		0xd7, 0x06, 0xac, 0xfc, 0x88,
+ 			  		0x04, 0xb6, 0xce, 0x7d, 0x06,
+ 			  		0xca, 0x2c, 0x65, 0x11, 0x90]
 
 # ╔═╡ ee62356d-6573-4f50-910f-48189f80fb4a
 if open(sha1, FILEPATH) == SALES_SHA1
@@ -130,26 +133,19 @@ The data is in the wide format and contains sales values for 52 weeks and 811 pr
 sales_defaultnorm = select(sales, Cols(:Product_Code, r"Normalized")) |> stack;
 
 # ╔═╡ 00c07ba9-3c5f-4e16-a5fc-a656975fafba
-sales_raw = select(sales, Cols(:Product_Code, r"W\d+"));
+sales_raw = select(sales, Cols(:Product_Code, :MIN, :MAX, r"W\d+"));
 
 # ╔═╡ 93c9dce6-b6ea-4932-a8ad-c016d30c95d5
-transform!(sales_raw, Cols(names(sales_raw, Int64)) .=> (x -> Float64.(x)) => identity)
+transform!(sales_raw, Cols(r"W\d+") .=> (x -> Float64.(x)) => identity)
+
+# ╔═╡ d7be33a3-138a-4437-a7cd-87824b977cb8
+md"This is a bit finicky. `stack` pivots only those variables that are `Float64`, so I am not converting `MIN` and `MAX` to `Float64`."
 
 # ╔═╡ 3e1eb3b1-4efd-493e-b0a1-d0558c6edb89
 sales_mynorm = @chain sales_raw begin 
 	stack(_)
-	groupby(_, :Product_Code)
-	transform(_, :value => normalize => identity)
+	transform(_, [:value, :MIN, :MAX] => ByRow((v, min, max) -> (v + min) / (max + min)) => :value)
 end
-
-# ╔═╡ 72a6d25a-cea5-49cf-8ead-b08b060c84ec
-@chain [sales_defaultnorm, sales_mynorm] begin
-	groupby.(_, :Product_Code)
-	transform.(_, :value => norm => identity)
-end
-
-# ╔═╡ 35fd4f8c-43e0-4720-b596-505789a0d96b
-md"Seems I have misunderstood normalization. Think again. Probably need to use min/max to normalize..."
 
 # ╔═╡ bdd0b7f7-917b-41e1-a37a-8e66477f8c6b
 md"""
@@ -190,17 +186,102 @@ Inspect the normalized data further. Plot the normalized time series with the lo
 """
 
 # ╔═╡ 1b7ba29f-59a3-4206-84aa-26533d85103c
-highest = subset(df_summary[1], :mean => (x -> x .== maximum(x))).Product_Code
+max_μ = subset(df_summary[1], :mean => (x -> x .== maximum(x))).Product_Code
+
+# ╔═╡ 87a57b01-1259-4329-a185-d956720968dc
+min_μ = subset(df_summary[1], :mean => (x -> x .== minimum(x))).Product_Code
 
 # ╔═╡ 0042b894-772d-48ef-8514-d304f3ce5350
 @chain sales_defaultnorm begin
-	subset(_, :Product_Code => ByRow(x -> x == highest...))
+	subset(_, :Product_Code => ByRow(x -> x == max_μ[1]))
 	plot(eachindex(_.value), _.value)
 end
+
+# ╔═╡ e4d02130-fa0b-4307-ad31-d40c3811b014
+@chain sales_defaultnorm begin
+	subset(_, :Product_Code => ByRow(x -> x == min_μ[1]))
+	plot(eachindex(_.value), _.value)
+end
+
+# ╔═╡ c9f2a69e-118e-4d08-a500-0bf3039f9978
+md"""
+## 9. Timeseries of extreme standard deviations
+
+Plot the normalized time series with the lowest and highest standard deviations.
+"""
+
+# ╔═╡ 6c0314f4-761f-4f94-82dc-bab15b333328
+max_σ = subset(df_summary[1], :std => (x -> x .== maximum(x))).Product_Code
+
+# ╔═╡ 1b8aa2d9-2201-4de1-8a02-b70780a15f18
+min_σ = subset(df_summary[1], :std => (x -> x .== minimum(x))).Product_Code
+
+# ╔═╡ 76ff468c-87ba-43a2-b8c7-3bf7743dd11f
+@chain sales_defaultnorm begin
+	subset(_, :Product_Code => ByRow(x -> x == max_σ[1]))
+	plot(eachindex(_.value), _.value)
+end
+
+# ╔═╡ 19d242b3-0c54-4ea7-b451-1637e87ae4ae
+@chain sales_defaultnorm begin
+	subset(_, :Product_Code => ByRow(x -> x == min_σ[1]))
+	plot(eachindex(_.value), _.value)
+end
+
+# ╔═╡ b5bed7d2-8e3a-431c-9ab8-bbcc866aad94
+md"""
+## 10. Transposing
+
+We will want to consider another type of normalization so that data has mean of 0 and standard deviation of 1, which may be more appropriate for the clustering task. As a preliminary step keep only the `W` and `Product_Code` columns and transpose the data to place the products in columns and the weeks in rows.
+"""
+
+# ╔═╡ d3153809-de00-452b-bc2c-3f4b0cd30d55
+standardise(x) = (x .- mean(x)) ./ std(x)
+
+# ╔═╡ 8d6d2b19-9e19-4c9c-ae17-1a90d3bc7f23
+sales_z = @chain sales_raw begin
+	select(_, Cols(:Product_Code, r"W\d+"))
+	stack(_)
+end
+
+# ╔═╡ 02603c9c-faa8-4f8d-a506-43ec13c0fe53
+md"""
+## 11. Standardisation
+Normalize data as described in step 10 and drop the `Product_Code` information.
+"""
+
+# ╔═╡ da02ddaa-134c-4b15-a00f-3d1ee70250b2
+@chain sales_z begin
+	groupby(_, :Product_Code)
+	transform!(_, :value => standardise => :zvalue)
+end
+
+# ╔═╡ 62e01f51-6c2f-4b18-9d0c-1d5912ea8574
+select!(sales_z, Not(:Product_Code, :value))
+
+# ╔═╡ f3b25312-23c8-4c3b-b8d6-f489c9180964
+md"""
+## 12. Line plot
+
+Make a line plot of 15 weeks of sales for the first three products from the dataset. This may give us an idea of whether the shape of the sales patterns differs between the products. You should produce a plot similar to the one below.
+
+This is strange, I would have kept the `Product_Code` for plotting this, hm. Curious to see how they solve it.
+"""
+
+# ╔═╡ db91e3c8-895a-4832-a34e-7470084d5081
+md"""
+## 13. Save data
+
+Save the final dataset in [Apache Arrow](https://arrow.apache.org/) format.
+"""
+
+# ╔═╡ fca80ef9-8be8-4409-bd25-f326d5e0fa4c
+Arrow.write("$(@__DIR__)/data/sales.arrow", sales_z)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
@@ -212,6 +293,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 
 [compat]
+Arrow = "~2.6.2"
 CSV = "~0.10.11"
 Chain = "~0.5.0"
 DataFrames = "~1.6.1"
@@ -226,7 +308,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.4"
 manifest_format = "2.0"
-project_hash = "dc74796d91afcc70d65e8a3b662390ee4fa950b9"
+project_hash = "95faf7b38dc9f70be1ebb3c534e94a693d06cab9"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -271,6 +353,18 @@ git-tree-sha1 = "5ba6c757e8feccf03a1554dfaf3e26b3cfc7fd5e"
 uuid = "68821587-b530-5797-8361-c406ea357684"
 version = "3.5.1+1"
 
+[[deps.Arrow]]
+deps = ["ArrowTypes", "BitIntegers", "CodecLz4", "CodecZstd", "ConcurrentUtilities", "DataAPI", "Dates", "EnumX", "LoggingExtras", "Mmap", "PooledArrays", "SentinelArrays", "Tables", "TimeZones", "TranscodingStreams", "UUIDs"]
+git-tree-sha1 = "954666e252835c4cf8819ce4ffaf31073c1b7233"
+uuid = "69666777-d1a9-59fb-9406-91d4454c9d45"
+version = "2.6.2"
+
+[[deps.ArrowTypes]]
+deps = ["Sockets", "UUIDs"]
+git-tree-sha1 = "8c37bfdf1b689c6677bbfc8986968fe641f6a299"
+uuid = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
+version = "2.2.2"
+
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
@@ -288,11 +382,22 @@ git-tree-sha1 = "2dc09997850d68179b69dafb58ae806167a32b1b"
 uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
 version = "0.1.8"
 
+[[deps.BitIntegers]]
+deps = ["Random"]
+git-tree-sha1 = "a55462dfddabc34bc97d3a7403a2ca2802179ae6"
+uuid = "c3b6d118-76ef-56ca-8cc7-ebb389d030a1"
+version = "0.3.1"
+
 [[deps.Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "19a35467a82e236ff51bc17a3a44b69ef35185a2"
 uuid = "6e34b625-4abd-537c-b88f-471c36dfa7a0"
 version = "1.0.8+0"
+
+[[deps.CEnum]]
+git-tree-sha1 = "eb4cb44a499229b3b8426dcfb5dd85333951ff90"
+uuid = "fa961155-64e5-5f13-b03f-caf6b980ea82"
+version = "0.4.2"
 
 [[deps.CSV]]
 deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers", "PooledArrays", "PrecompileTools", "SentinelArrays", "Tables", "Unicode", "WeakRefStrings", "WorkerUtilities"]
@@ -333,11 +438,23 @@ git-tree-sha1 = "05f9816a77231b07e634ab8715ba50e5249d6f76"
 uuid = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
 version = "0.15.5"
 
+[[deps.CodecLz4]]
+deps = ["Lz4_jll", "TranscodingStreams"]
+git-tree-sha1 = "8bf4f9e2ee52b5e217451a7cd9171fcd4e16ae23"
+uuid = "5ba52731-8f18-5e0d-9241-30f10d1ec561"
+version = "0.4.1"
+
 [[deps.CodecZlib]]
 deps = ["TranscodingStreams", "Zlib_jll"]
 git-tree-sha1 = "cd67fc487743b2f0fd4380d4cbd3a24660d0eec8"
 uuid = "944b1d66-785c-5afd-91f1-9de20f533193"
 version = "0.7.3"
+
+[[deps.CodecZstd]]
+deps = ["CEnum", "TranscodingStreams", "Zstd_jll"]
+git-tree-sha1 = "849470b337d0fa8449c21061de922386f32949d9"
+uuid = "6b39b394-51ab-5f42-8807-6242bab2b4c2"
+version = "0.7.2"
 
 [[deps.ColorSchemes]]
 deps = ["ColorTypes", "ColorVectorSpace", "Colors", "FixedPointNumbers", "PrecompileTools", "Random"]
@@ -478,6 +595,11 @@ git-tree-sha1 = "5837a837389fccf076445fce071c8ddaea35a566"
 uuid = "fa6b7ba4-c1ee-5f82-b5fc-ecf0adba8f74"
 version = "0.6.8"
 
+[[deps.EnumX]]
+git-tree-sha1 = "bdb1942cd4c45e3c678fd11569d5cccd80976237"
+uuid = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
+version = "1.0.4"
+
 [[deps.EpollShim_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "8e9441ee83492030ace98f9789a654a6d0b1f643"
@@ -495,6 +617,11 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "4558ab818dcceaab612d1bb8c19cee87eda2b83c"
 uuid = "2e619515-83b5-522b-bb60-26c02a35a201"
 version = "2.5.0+0"
+
+[[deps.ExprTools]]
+git-tree-sha1 = "27415f162e6028e81c72b82ef756bf321213b6ec"
+uuid = "e2ba6199-217a-4e67-a87a-7c52f15ade04"
+version = "0.1.10"
 
 [[deps.FFMPEG]]
 deps = ["FFMPEG_jll"]
@@ -864,6 +991,12 @@ git-tree-sha1 = "c1dd6d7978c12545b4179fb6153b9250c96b0075"
 uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
 version = "1.0.3"
 
+[[deps.Lz4_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "6c26c5e8a4203d43b5497be3ec5d4e0c3cde240a"
+uuid = "5ced341a-0733-55b8-9ab6-a4889d929147"
+version = "1.9.4+0"
+
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
@@ -909,6 +1042,12 @@ version = "1.1.0"
 
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
+
+[[deps.Mocking]]
+deps = ["Compat", "ExprTools"]
+git-tree-sha1 = "4cc0c5a83933648b615c36c2b956d94fda70641e"
+uuid = "78c3b35d-d492-501b-9361-3d52fe80e533"
+version = "0.7.7"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
@@ -1291,6 +1430,12 @@ deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
 
+[[deps.TZJData]]
+deps = ["Artifacts"]
+git-tree-sha1 = "d39314cdbaf5b90a047db33858626f8d1cc973e1"
+uuid = "dc5dba14-91b3-4cab-a142-028a31da12f7"
+version = "1.0.0+2023c"
+
 [[deps.TableOperations]]
 deps = ["SentinelArrays", "Tables", "Test"]
 git-tree-sha1 = "e383c87cf2a1dc41fa30c093b2a19877c83e1bc1"
@@ -1324,14 +1469,21 @@ version = "0.1.1"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
-[[deps.TranscodingStreams]]
-git-tree-sha1 = "1fbeaaca45801b4ba17c251dd8603ef24801dd84"
-uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
-version = "0.10.2"
-weakdeps = ["Random", "Test"]
+[[deps.TimeZones]]
+deps = ["Artifacts", "Dates", "Downloads", "InlineStrings", "LazyArtifacts", "Mocking", "Printf", "Scratch", "TZJData", "Unicode", "p7zip_jll"]
+git-tree-sha1 = "89e64d61ef3cd9e80f7fc12b7d13db2d75a23c03"
+uuid = "f269a46b-ccf7-5d73-abea-4c690281aa53"
+version = "1.13.0"
+weakdeps = ["RecipesBase"]
 
-    [deps.TranscodingStreams.extensions]
-    TestExt = ["Test", "Random"]
+    [deps.TimeZones.extensions]
+    TimeZonesRecipesBaseExt = "RecipesBase"
+
+[[deps.TranscodingStreams]]
+deps = ["Random", "Test"]
+git-tree-sha1 = "9a6ae7ed916312b41236fcef7e0af564ef934769"
+uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
+version = "0.9.13"
 
 [[deps.Tricks]]
 git-tree-sha1 = "eae1bb484cd63b36999ee58be2de6c178105112f"
@@ -1716,9 +1868,8 @@ version = "1.4.1+1"
 # ╠═6f1fe171-ca54-40ab-bdec-e56a5c4baa91
 # ╠═00c07ba9-3c5f-4e16-a5fc-a656975fafba
 # ╠═93c9dce6-b6ea-4932-a8ad-c016d30c95d5
+# ╟─d7be33a3-138a-4437-a7cd-87824b977cb8
 # ╠═3e1eb3b1-4efd-493e-b0a1-d0558c6edb89
-# ╠═72a6d25a-cea5-49cf-8ead-b08b060c84ec
-# ╟─35fd4f8c-43e0-4720-b596-505789a0d96b
 # ╟─bdd0b7f7-917b-41e1-a37a-8e66477f8c6b
 # ╠═bd44cdb2-1838-4d07-8cf8-8be7005ef1cb
 # ╠═5e5e62ad-237e-4638-bf2a-b2c5a00c06ca
@@ -1727,6 +1878,23 @@ version = "1.4.1+1"
 # ╠═eac3272b-d0a9-49b7-904d-402ef4195099
 # ╟─d1b26587-5013-45da-911b-fe4a98686a5c
 # ╠═1b7ba29f-59a3-4206-84aa-26533d85103c
+# ╠═87a57b01-1259-4329-a185-d956720968dc
 # ╠═0042b894-772d-48ef-8514-d304f3ce5350
+# ╠═e4d02130-fa0b-4307-ad31-d40c3811b014
+# ╟─c9f2a69e-118e-4d08-a500-0bf3039f9978
+# ╠═6c0314f4-761f-4f94-82dc-bab15b333328
+# ╠═1b8aa2d9-2201-4de1-8a02-b70780a15f18
+# ╠═76ff468c-87ba-43a2-b8c7-3bf7743dd11f
+# ╠═19d242b3-0c54-4ea7-b451-1637e87ae4ae
+# ╟─b5bed7d2-8e3a-431c-9ab8-bbcc866aad94
+# ╠═d3153809-de00-452b-bc2c-3f4b0cd30d55
+# ╠═8d6d2b19-9e19-4c9c-ae17-1a90d3bc7f23
+# ╠═02603c9c-faa8-4f8d-a506-43ec13c0fe53
+# ╠═da02ddaa-134c-4b15-a00f-3d1ee70250b2
+# ╠═62e01f51-6c2f-4b18-9d0c-1d5912ea8574
+# ╟─f3b25312-23c8-4c3b-b8d6-f489c9180964
+# ╟─db91e3c8-895a-4832-a34e-7470084d5081
+# ╠═bec77350-694e-4707-a217-27094bf915c8
+# ╠═fca80ef9-8be8-4409-bd25-f326d5e0fa4c
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
