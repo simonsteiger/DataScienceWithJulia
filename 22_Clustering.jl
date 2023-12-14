@@ -1,295 +1,269 @@
 ### A Pluto.jl notebook ###
-# v0.19.30
+# v0.19.35
 
 using Markdown
 using InteractiveUtils
 
-# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
-macro bind(def, element)
-    quote
-        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
-        local el = $(esc(element))
-        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
-        el
-    end
-end
+# ╔═╡ 68c56a2f-82f5-469b-a2fc-eb7e927072f7
+using Arrow, DataFrames
 
-# ╔═╡ 5cb9fcc0-e413-4583-a99e-caf1da9b4f1a
-using Downloads
+# ╔═╡ 2dc6fe3e-993b-4de1-94c4-e1f413ddc489
+using StatsBase, Chain, Test
 
-# ╔═╡ aae4f172-636d-4b98-be05-354bd5e1cd5c
-using SHA
+# ╔═╡ 09db85de-655e-484e-97ba-334441e57bd4
+using Clustering
 
-# ╔═╡ 68d154e5-c6f5-4362-896b-7320ad79b038
-using CSV, DataFrames
+# ╔═╡ 68dd45a1-8fc0-4cdd-83d5-ada81f7d180e
+using StatsPlots
 
-# ╔═╡ dc8e8f65-99a4-4714-8956-6168b55890fd
-using LinearAlgebra, Chain
+# ╔═╡ 2f95f567-98d5-4cb9-8fed-0028dba3c705
+using FreqTables
 
-# ╔═╡ bd44cdb2-1838-4d07-8cf8-8be7005ef1cb
-using StatsPlots, StatsBase
-
-# ╔═╡ 828df9b7-baeb-4a18-ae7e-430df4de750e
-using PlutoUI
-
-# ╔═╡ bec77350-694e-4707-a217-27094bf915c8
-using Arrow
-
-# ╔═╡ 434bde5e-8aa0-11ee-3754-b1dcab18fb02
+# ╔═╡ 5cec8c62-8b9a-11ee-25c4-fb54675625c0
 md"""
-# Milestone 1: K-means and DBSCAN
+# Milestone 2: K-means and DBSCAN
 
 In this script, I will
 
-- inspect and prepare the `Sales` dataset for clustering
-- explore and analyze the structure of the data
+- apply K-means
+- tune the k parameter
+- evaluate results with different parameters
+- describe one configuration in detail
 
-!!! danger "Clustering and data quality"
-	Before any modeling (both clustering and otherwise), we must be confident in the data's quality and its input format (e.g., missingness). Making the best possible choices here has downstream consequences for our clustering results.
-
-## 1. Download data
-
-We will use `Sales_Transactions_Dataset_Weekly.csv` from the [UCI repository](https://archive.ics.uci.edu/ml/machine-learning-databases/00396/Sales_Transactions_Dataset_Weekly.csv). More information is available on [this website](https://archive.ics.uci.edu/dataset/396/sales+transactions+dataset+weekly). Download the files from the internet, but only if they are not already present in the local folder.
+!!! note "Potential questions"
+	- Are there clear-cut groups based on weekly sales data?
+	- Are there any outliers?
 """
 
-# ╔═╡ eb8c5621-2e8a-4e20-ab9f-1c6549764aef
+# ╔═╡ 2639233c-826a-47ba-b525-c413265eb36d
+md"""
+## 1. Load data
+
+Load the `sales_norm.arrow` file produced in the previous milestone.
+"""
+
+# ╔═╡ 132c6844-f2c5-45d4-8f4e-dd6fe70c5d8c
+df = DataFrame(Arrow.Table(joinpath(@__DIR__, "data", "sales.arrow")));
+
+# ╔═╡ e0bb0cec-c6b8-4817-8062-fe71e2ae3aae
+md"""
+## 2. DataFrame to Matrix
+
+Prepare the data for clustering by creating a `Matrix` from your `DataFrame`.
+"""
+
+# ╔═╡ b28e4da6-1077-465f-97e4-6148da755570
+X = Matrix(df)
+
+# ╔═╡ a0bcbc18-a747-4ff3-8d9f-c1be76573dfd
+md"""
+## 3. Verify standardisation
+
+Check if standardization was done correctly. Produce extreme values of mean and standard deviation for each product. Mean should be close to 0 and standard deviation to 1.
+"""
+
+# ╔═╡ 5952b63c-17a6-425c-93d8-e687603692af
+@chain X begin
+	[f(slice) for slice in eachslice(_, dims=2), f in [mean, std]]
+	@test all([isapprox.(_[:, 1], 0, atol=1e-5); isapprox.(_[:, 2], 1, atol=1e-5)])
+end
+
+# ╔═╡ 66cf4f26-fd39-44aa-85f2-e2c6e8973fb6
+md"""
+!!! warning "Overkill"
+	The solution only checks the extrema, a much more inexpensive way compared to me checking each individual value.
+"""
+
+# ╔═╡ 69fd28f2-648d-4217-8a24-9ed10af503f8
+md"""
+## 4. Fit K-means
+
+Produce clustering results for `k` (number of clusters) values between 2 and 20 with `k-means++` centroid initialization. Store the results for all values of `k` in one vector.
+"""
+
+# ╔═╡ 3c5ae761-f6c4-411c-b223-55294ea54112
+R_kmpp = kmeans.(Ref(X), [2:20;], init=:kmpp)
+
+# ╔═╡ 4906f3dc-8357-4bb6-a6de-241412a66c95
+md"""
+## 5. Different centroid initialization
+Produce clustering results for `k` (number of clusters) values between 2 and 20 with `random` centroid initialization. Store the results for all values of `k` in one vector.
+"""
+
+# ╔═╡ e52b8ebb-368b-4b88-837d-7d12b93bf280
+R_rand = kmeans.(Ref(X), [2:20;], init=:rand)
+
+# ╔═╡ 6b6e96ad-025c-41ae-bff3-49f711847d70
+md"""
+## 6. Convergence statistics
+
+Plot the number of iterations until the algorithm’s convergence for both `k-means++` and `random` seeding for all values of `k`. Check which method converges faster. You need to access particular field of the `KmeansResult` object if you are using the Clustering.jl package.
+"""
+
+# ╔═╡ 1371603c-5105-4bce-9a33-b1d7236c5549
 begin
-	const URL = "https://archive.ics.uci.edu/ml" *
-			"/machine-learning-databases/00396/Sales_Transactions_Dataset_Weekly.csv"
-
-	const FILENAME = "sales_transactions_weekly.txt"
-	const FILEPATH = joinpath(@__DIR__, "data", FILENAME)
+	plot(map(x -> [r.iterations for r in x], [R_kmpp, R_rand]), label=["KMPP" "RAND"])
+	xlabel!("K"); ylabel!("Iterations to convergence")
 end
 
-# ╔═╡ c2ba66d0-eebf-4275-97ca-323fb8b92fab
-if isfile(FILEPATH)
-	@info "$FILENAME found. Skipping download."
-else
-	isdir(joinpath(@__DIR__, "data")) || mkdir(joinpath(@__DIR__, "data"))
-	@info "$FILENAME not found. Downloading from: $URL."
-	Downloads.download(URL, FILEPATH)
+# ╔═╡ 527408bd-568e-4d0f-91ea-0f5d16f41583
+md"""
+## 7. Choosing the number of clusters
+
+Plot the total sum of squared errors (SSE) for each value of `k` and both seeding algorithms. Use the `elbow` method to determine the optimal number of clusters. You can read more about this evaluation technique in the article [Elbow method](https://en.wikipedia.org/wiki/Elbow_method_(clustering)). You need to access a particular field of the `KmeansResult` object if you are using the Clustering.jl package.
+"""
+
+# ╔═╡ 421e2c27-c0f0-4c55-b4fa-c60b52d25036
+begin
+	plot(map(x -> [r.totalcost for r in x], [R_kmpp, R_rand]), label=["KMPP" "RAND"])
+	xlabel!("K"); ylabel!("Cost (SSE)")
 end
 
-# ╔═╡ a783b2b7-7cef-4e2c-bd71-155e702718bf
+# ╔═╡ 006c95b7-e722-4546-9979-75cf04e23180
 md"""
-## 2. Verify SHA1 hash
+## 8. Crosstabulation
 
-Check that the file has been fetched correctly by calculating its SHA1 hash, and compare it to the following reference value:
+Produce a two-way table between cluster assignments for the random seeding and `k-means++` method. Use clustering with the number of clusters picked in the previous step. In the reference solution, the authors use `k=4`. Check if the initialization methods produce similar assignments to the clusters. 
 """
 
-# ╔═╡ 62507a5c-f412-452e-9e0f-e94d5fda3505
-const SALES_SHA1 = [0x07, 0xa7, 0x28, 0x88, 0x1e,
- 			  		0xd7, 0x06, 0xac, 0xfc, 0x88,
- 			  		0x04, 0xb6, 0xce, 0x7d, 0x06,
- 			  		0xca, 0x2c, 0x65, 0x11, 0x90]
+# ╔═╡ f1c6b6e8-4d4f-4d6c-b8c0-e35b93b74f68
+freqtable(DataFrame([assignments.([R_kmpp[3], R_rand[3]]);], [:kmpp, :rand]), :kmpp, :rand)
 
-# ╔═╡ ee62356d-6573-4f50-910f-48189f80fb4a
-if open(sha1, FILEPATH) == SALES_SHA1
-	@info "SHA1 check of $FILENAME passed."
-else
-	error("$FILENAME file has an invalid SHA1. Aborting!")
+# ╔═╡ 54394754-e707-4731-a901-9b17b1a377e4
+md"""
+## 9. Cluster robustness
+
+Run 1,000 iterations of `k-means++` and `random` seeding initializations for chosen number of clusters (`k=4`). Store the results in an arrays.
+"""
+
+# ╔═╡ d299e2d9-abee-4566-9b55-2f30c8d581dd
+R1k_kmpp, R1k_rand = map([:kmpp, :rand]) do init
+	[kmeans(X, 4, init=i) for i in fill(init, 1000)]
 end
 
-# ╔═╡ 161eb493-4251-4439-b106-26183503d86f
+# ╔═╡ 74495fe4-5302-4486-bce6-6ee6ae7a460a
 md"""
-## 3. Jupyter configuration
+## 10. Coefficient of variation
 
-!!! danger "Using Pluto.jl"
-	Skipping this because I am working in Pluto.jl.
+Calculate the [coefficient of variation](https://en.wikipedia.org/wiki/Coefficient_of_variation) for SSE (sum of squared errors) in both runs from the previous step. Are the results stable?
 """
 
-# ╔═╡ b5f3f110-36c2-435e-9a1e-efcb16f8629f
-md"""
-## 4. Loading data
+# ╔═╡ 16a11228-46ab-48d9-946f-84ad0b31a129
+std(getfield.(R1k_kmpp, :centers)) / mean(getfield.(R1k_kmpp, :centers))
 
-Load the data into a `DataFrame`. Examine the basic descriptive statistics of the dataset.
+# ╔═╡ 32d3316e-07fb-483c-9617-32693a4bb341
+std(getfield.(R1k_rand, :centers)) / mean(getfield.(R1k_rand, :centers))
+
+# ╔═╡ 269ea9e3-68a8-4899-a7c7-3f657adad4bb
+md"""
+## 11. Pick optimal clustering
+
+Pick the optimal clustering based on the minimal SSE (sum of squared errors) from all 2,000 iterations run for both `k-means++` and `random` seeding.
 """
 
-# ╔═╡ ad688c6d-568e-499a-9ed6-b71816e90436
-sales_ref = CSV.read(FILEPATH, DataFrame);
+# ╔═╡ cd510e99-a544-4eb8-8f77-140f43628344
+[findmin(getfield.(x, :totalcost)) for x in [R1k_kmpp, R1k_rand]]
 
-# ╔═╡ 0bbb4932-7645-4728-b410-e9e39ffa5447
-sales = copy(sales_ref);
+# ╔═╡ cb9a3a0f-c1bd-45f7-b2bb-0f089570ef9c
+R_opt = R1k_kmpp[findmin(getfield.(R1k_kmpp, :totalcost))[2]]
 
-# ╔═╡ ceab62f1-164f-4ff9-a789-2be89cf0aeb7
-describe(sales)
-
-# ╔═╡ 8498657a-d4f3-44e7-932d-2dcd78ca1268
+# ╔═╡ 86416c72-5d0c-4ae5-a876-744bc7db6805
 md"""
-## 5. Jupyter configuration
+## 12. Cluster size
 
-!!! danger "Using Pluto.jl"
-	Skipping this because I am working in Pluto.jl.
+
+Calculate the size of each cluster in the optimal clustering. Are data points evenly distributed between clusters or not?
 """
 
-# ╔═╡ add96df8-389f-4f13-acc5-34df141c3415
-md"""
-## 6. Normalize columns
-
-The data is in the wide format and contains sales values for 52 weeks and 811 products. There are already normalized versions of these 52 columns, but we want to double-check that these are correct. The normalization should ensure that the range of values for each product falls into the `[0, 1]` interval.
-"""
-
-# ╔═╡ 6f1fe171-ca54-40ab-bdec-e56a5c4baa91
-sales_defaultnorm = select(sales, Cols(:Product_Code, r"Normalized")) |> stack;
-
-# ╔═╡ 00c07ba9-3c5f-4e16-a5fc-a656975fafba
-sales_raw = select(sales, Cols(:Product_Code, :MIN, :MAX, r"W\d+"));
-
-# ╔═╡ 93c9dce6-b6ea-4932-a8ad-c016d30c95d5
-transform!(sales_raw, Cols(r"W\d+") .=> (x -> Float64.(x)) => identity)
-
-# ╔═╡ d7be33a3-138a-4437-a7cd-87824b977cb8
-md"This is a bit finicky. `stack` pivots only those variables that are `Float64`, so I am not converting `MIN` and `MAX` to `Float64`."
-
-# ╔═╡ 3e1eb3b1-4efd-493e-b0a1-d0558c6edb89
-sales_mynorm = @chain sales_raw begin 
-	stack(_)
-	transform(_, [:value, :MIN, :MAX] => ByRow((v, min, max) -> (v - min) / (max - min)) => :value)
+# ╔═╡ 5d008880-8da7-4a2c-a05b-69042d8679b1
+let ass = assignments(R_opt)
+	[i => sum(ass .== x) for (i, x) in enumerate(unique(ass))]
 end
 
-# ╔═╡ bdd0b7f7-917b-41e1-a37a-8e66477f8c6b
+# ╔═╡ 7887ea9f-1284-43bb-8720-037c8536a93c
 md"""
-## 7. Histograms
+## 13. Plot means as timeseries
 
-
-Check the properties of the normalized columns relevant to the clustering process. Produce histograms of the means and standard deviations for the normalized columns.
+Plot the mean sales values for each cluster as time series. Do time series for each cluster differ from one another? You should produce a plot similar to the one below.
 """
 
-# ╔═╡ 5e5e62ad-237e-4638-bf2a-b2c5a00c06ca
-df_summary = 
-	map([sales_defaultnorm, sales_mynorm]) do df
-		@chain df begin
-			groupby(_, :Product_Code)
-			combine(_, :value => (x -> (mean=mean(x), std=std(x))) => AsTable)
+# ╔═╡ f4f4ef9a-218c-4aae-b490-61fa7fffaa65
+function plot_timeseries(f, X, R)
+	@chain assignments(R) begin
+		map(unique(_)) do ass
+			vec(f(X[:, _ .== ass], dims=2))
 		end
+		plot(_, label=["Cluster 1" "Cluster 2" "Cluster 3" "Cluster 4"])
 	end
-
-# ╔═╡ 27e7108d-22cd-4765-929c-162793e45dc2
-begin
-	normidx = @bind idx Slider(eachindex(df_summary))
-
-	md"""
-	Pick plot: $(normidx)
-
-	Looks like something is wrong with what I understood as "normalize".
-	"""
 end
 
-# ╔═╡ eac3272b-d0a9-49b7-904d-402ef4195099
-plot(histogram.([df_summary[idx].mean, df_summary[idx].std])...)
+# ╔═╡ 2b322a80-1a61-4c7a-ba8d-65ffaadfee15
+plot_timeseries(mean, X, R_opt); title!("Mean per cluster")
 
-# ╔═╡ d1b26587-5013-45da-911b-fe4a98686a5c
+# ╔═╡ d806a99c-9f22-4e55-b39d-5dea9d209af0
 md"""
-## 8. Timeseries of extreme means
+## 14. Plot standard deviation as timeseries
 
-Inspect the normalized data further. Plot the normalized time series with the lowest and highest mean.
+Plot the standard deviation of sales values for each data cluster as time series. Do clusters differ in terms of variation? You should produce a plot similar to the one below.
 """
 
-# ╔═╡ 1b7ba29f-59a3-4206-84aa-26533d85103c
-max_μ = subset(df_summary[1], :mean => (x -> x .== maximum(x))).Product_Code
+# ╔═╡ f71600aa-1bef-485c-800e-17d7b4fb1b56
+plot_timeseries(mean, X, R_opt); title!("Standard deviation per cluster")
 
-# ╔═╡ 87a57b01-1259-4329-a185-d956720968dc
-min_μ = subset(df_summary[1], :mean => (x -> x .== minimum(x))).Product_Code
+# ╔═╡ 4d123fcb-1e4e-4192-adae-0ffeee0c5b5e
+md"""
+## 15. Save assignments
 
-# ╔═╡ 0042b894-772d-48ef-8514-d304f3ce5350
-@chain sales_defaultnorm begin
-	subset(_, :Product_Code => ByRow(x -> x == max_μ[1]))
-	plot(eachindex(_.value), _.value)
+Save the K-means assignments to the text file–we’ll use it in the next milestone.
+"""
+
+# ╔═╡ 3ae1d593-2231-4db8-b56f-04ad8f58b1c3
+open("kmeans_assignments.txt", "w") do io
+  foreach(e -> println(io, e), R_opt.assignments)
 end
 
-# ╔═╡ e4d02130-fa0b-4307-ad31-d40c3811b014
-@chain sales_defaultnorm begin
-	subset(_, :Product_Code => ByRow(x -> x == min_μ[1]))
-	plot(eachindex(_.value), _.value)
-end
-
-# ╔═╡ c9f2a69e-118e-4d08-a500-0bf3039f9978
+# ╔═╡ 2d7ba549-6380-4242-8cc6-708fae14d8eb
 md"""
-## 9. Timeseries of extreme standard deviations
-
-Plot the normalized time series with the lowest and highest standard deviations.
+!!! danger "Copied"
+	I didn't know how to write to txt and copied this from the solution.
 """
 
-# ╔═╡ 6c0314f4-761f-4f94-82dc-bab15b333328
-max_σ = subset(df_summary[1], :std => (x -> x .== maximum(x))).Product_Code
-
-# ╔═╡ 1b8aa2d9-2201-4de1-8a02-b70780a15f18
-min_σ = subset(df_summary[1], :std => (x -> x .== minimum(x))).Product_Code
-
-# ╔═╡ 76ff468c-87ba-43a2-b8c7-3bf7743dd11f
-@chain sales_defaultnorm begin
-	subset(_, :Product_Code => ByRow(x -> x == max_σ[1]))
-	plot(eachindex(_.value), _.value)
-end
-
-# ╔═╡ 19d242b3-0c54-4ea7-b451-1637e87ae4ae
-@chain sales_defaultnorm begin
-	subset(_, :Product_Code => ByRow(x -> x == min_σ[1]))
-	plot(eachindex(_.value), _.value)
-end
-
-# ╔═╡ b5bed7d2-8e3a-431c-9ab8-bbcc866aad94
+# ╔═╡ 2c3f261b-550a-4938-b479-d1c55470563b
 md"""
-## 10. Transposing
+## 16. Interpretation
 
-We will want to consider another type of normalization so that data has mean of 0 and standard deviation of 1, which may be more appropriate for the clustering task. As a preliminary step keep only the `W` and `Product_Code` columns and transpose the data to place the products in columns and the weeks in rows.
+Write down a few business-centered conclusions from the clusters analysis based on steps 13 and 14. Save the notebook.
 """
 
-# ╔═╡ ddf10aea-a632-404d-846e-24a4b478a1c4
-sales_transposed = permutedims(select(sales_raw, Cols(:Product_Code, r"W")), :Product_Code)
+# ╔═╡ 80582433-b403-43b9-9950-f4698527735c
 
-# ╔═╡ 02603c9c-faa8-4f8d-a506-43ec13c0fe53
+
+# ╔═╡ ded2d598-e592-48c1-aa96-44f8d3aa9b7c
 md"""
-## 11. Standardisation
-Normalize data as described in step 10 and drop the `Product_Code` information.
+!!! tip "Further reading"
+	- More on the importance of careful seeding with [k-means++](https://theory.stanford.edu/~sergei/papers/kMeansPP-soda.pdf)
+	- the [scikit-learn](https://scikit-learn.org/stable/modules/clustering.html#k-means) docs
+	- the [Clustering.jl](https://juliastats.org/Clustering.jl/stable/) docs
 """
-
-# ╔═╡ d3153809-de00-452b-bc2c-3f4b0cd30d55
-standardise(x) = (x .- mean(x)) ./ std(x)
-
-# ╔═╡ 8d6d2b19-9e19-4c9c-ae17-1a90d3bc7f23
-sales_z = mapcols(x -> standardise(x), select(sales_transposed, Not(:Product_Code)))
-
-# ╔═╡ f3b25312-23c8-4c3b-b8d6-f489c9180964
-md"""
-## 12. Line plot
-
-Make a line plot of 15 weeks of sales for the first three products from the dataset. This may give us an idea of whether the shape of the sales patterns differs between the products. You should produce a plot similar to the one below.
-"""
-
-# ╔═╡ a1b480c2-38e5-40f1-a647-4d93fd1b4c69
-plot(Matrix(sales_z[1:15, 1:3]), xlabel="Week", ylabel="Sales", marker=3, label=["P1" "P2" "P3"])
-
-# ╔═╡ db91e3c8-895a-4832-a34e-7470084d5081
-md"""
-## 13. Save data
-
-Save the final dataset in [Apache Arrow](https://arrow.apache.org/) format.
-"""
-
-# ╔═╡ fca80ef9-8be8-4409-bd25-f326d5e0fa4c
-Arrow.write("$(@__DIR__)/data/sales.arrow", sales_z)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
-CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
+Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+FreqTables = "da1fdf0e-e0ff-5433-a45f-9bb5ff651cb1"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
 Arrow = "~2.6.2"
-CSV = "~0.10.11"
 Chain = "~0.5.0"
+Clustering = "~0.15.5"
 DataFrames = "~1.6.1"
-PlutoUI = "~0.7.54"
+FreqTables = "~0.4.6"
 StatsBase = "~0.34.2"
 StatsPlots = "~0.15.6"
 """
@@ -300,7 +274,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.4"
 manifest_format = "2.0"
-project_hash = "95faf7b38dc9f70be1ebb3c534e94a693d06cab9"
+project_hash = "c8c6f4bc76b3344af4607496b0a3f96ccbae734c"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -313,17 +287,11 @@ weakdeps = ["ChainRulesCore", "Test"]
     AbstractFFTsChainRulesCoreExt = "ChainRulesCore"
     AbstractFFTsTestExt = "Test"
 
-[[deps.AbstractPlutoDingetjes]]
-deps = ["Pkg"]
-git-tree-sha1 = "793501dcd3fa7ce8d375a2c878dca2296232686e"
-uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.2.2"
-
 [[deps.Adapt]]
 deps = ["LinearAlgebra", "Requires"]
-git-tree-sha1 = "02f731463748db57cc2ebfbd9fbc9ce8280d3433"
+git-tree-sha1 = "cde29ddf7e5726c9fb511f340244ea3481267608"
 uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
-version = "3.7.1"
+version = "3.7.2"
 weakdeps = ["StaticArrays"]
 
     [deps.Adapt.extensions]
@@ -391,12 +359,6 @@ git-tree-sha1 = "eb4cb44a499229b3b8426dcfb5dd85333951ff90"
 uuid = "fa961155-64e5-5f13-b03f-caf6b980ea82"
 version = "0.4.2"
 
-[[deps.CSV]]
-deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers", "PooledArrays", "PrecompileTools", "SentinelArrays", "Tables", "Unicode", "WeakRefStrings", "WorkerUtilities"]
-git-tree-sha1 = "44dbf560808d49041989b8a96cae4cffbeb7966a"
-uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
-version = "0.10.11"
-
 [[deps.Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Pkg", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
 git-tree-sha1 = "4b859a208b2397a7a623a03449e4636bdb17bcf2"
@@ -408,6 +370,24 @@ deps = ["LinearAlgebra"]
 git-tree-sha1 = "f641eb0a4f00c343bbc32346e1217b86f3ce9dad"
 uuid = "49dc2e85-a5d0-5ad3-a950-438e2897f1b9"
 version = "0.5.1"
+
+[[deps.CategoricalArrays]]
+deps = ["DataAPI", "Future", "Missings", "Printf", "Requires", "Statistics", "Unicode"]
+git-tree-sha1 = "1568b28f91293458345dabba6a5ea3f183250a61"
+uuid = "324d7699-5711-5eae-9e2f-1d82baa6b597"
+version = "0.10.8"
+
+    [deps.CategoricalArrays.extensions]
+    CategoricalArraysJSONExt = "JSON"
+    CategoricalArraysRecipesBaseExt = "RecipesBase"
+    CategoricalArraysSentinelArraysExt = "SentinelArrays"
+    CategoricalArraysStructTypesExt = "StructTypes"
+
+    [deps.CategoricalArrays.weakdeps]
+    JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+    RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+    SentinelArrays = "91c51154-3ec4-41a3-a24f-3f23e20d615c"
+    StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
 
 [[deps.Chain]]
 git-tree-sha1 = "8c4920235f6c561e401dfe569beb8b924adad003"
@@ -476,6 +456,11 @@ git-tree-sha1 = "fc08e5930ee9a4e03f84bfb5211cb54e7769758a"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.12.10"
 
+[[deps.Combinatorics]]
+git-tree-sha1 = "08c8b6831dc00bfea825826be0bc8336fc369860"
+uuid = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
+version = "1.0.2"
+
 [[deps.Compat]]
 deps = ["UUIDs"]
 git-tree-sha1 = "8a62af3e248a8c4bad6b32cbbe663ae02275e32c"
@@ -541,9 +526,9 @@ version = "1.9.1"
 
 [[deps.Distances]]
 deps = ["LinearAlgebra", "Statistics", "StatsAPI"]
-git-tree-sha1 = "5225c965635d8c21168e32a12954675e7bea1151"
+git-tree-sha1 = "66c4c81f259586e8f002eacebc177e1fb06363b0"
 uuid = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
-version = "0.10.10"
+version = "0.10.11"
 weakdeps = ["ChainRulesCore", "SparseArrays"]
 
     [deps.Distances.extensions]
@@ -556,9 +541,9 @@ uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[deps.Distributions]]
 deps = ["FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SpecialFunctions", "Statistics", "StatsAPI", "StatsBase", "StatsFuns"]
-git-tree-sha1 = "a6c00f894f24460379cb7136633cef54ac9f6f4a"
+git-tree-sha1 = "9242eec9b7e2e14f9952e8ea1c7e31a50501d587"
 uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
-version = "0.25.103"
+version = "0.25.104"
 
     [deps.Distributions.extensions]
     DistributionsChainRulesCoreExt = "ChainRulesCore"
@@ -629,9 +614,9 @@ version = "4.4.4+1"
 
 [[deps.FFTW]]
 deps = ["AbstractFFTs", "FFTW_jll", "LinearAlgebra", "MKL_jll", "Preferences", "Reexport"]
-git-tree-sha1 = "b4fbdd20c889804969571cc589900803edda16b7"
+git-tree-sha1 = "ec22cbbcd01cba8f41eecd7d44aac1f23ee985e3"
 uuid = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
-version = "1.7.1"
+version = "1.7.2"
 
 [[deps.FFTW_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -639,23 +624,18 @@ git-tree-sha1 = "c6033cc3892d0ef5bb9cd29b7f2f0331ea5184ea"
 uuid = "f5851436-0d7a-5f13-b9de-f02708fd171a"
 version = "3.3.10+0"
 
-[[deps.FilePathsBase]]
-deps = ["Compat", "Dates", "Mmap", "Printf", "Test", "UUIDs"]
-git-tree-sha1 = "9f00e42f8d99fdde64d40c8ea5d14269a2e2c1aa"
-uuid = "48062228-2e41-5def-b9a4-89aafe57970f"
-version = "0.9.21"
-
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 
 [[deps.FillArrays]]
 deps = ["LinearAlgebra", "Random"]
-git-tree-sha1 = "35f0c0f345bff2c6d636f95fdb136323b5a796ef"
+git-tree-sha1 = "5b93957f6dcd33fc343044af3d48c215be2562f1"
 uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
-version = "1.7.0"
-weakdeps = ["SparseArrays", "Statistics"]
+version = "1.9.3"
+weakdeps = ["PDMats", "SparseArrays", "Statistics"]
 
     [deps.FillArrays.extensions]
+    FillArraysPDMatsExt = "PDMats"
     FillArraysSparseArraysExt = "SparseArrays"
     FillArraysStatisticsExt = "Statistics"
 
@@ -682,6 +662,12 @@ deps = ["Artifacts", "Bzip2_jll", "JLLWrappers", "Libdl", "Zlib_jll"]
 git-tree-sha1 = "d8db6a5a2fe1381c1ea4ef2cab7c69c2de7f9ea0"
 uuid = "d7e528f0-a631-5988-bf34-fe36492bcfd7"
 version = "2.13.1+0"
+
+[[deps.FreqTables]]
+deps = ["CategoricalArrays", "Missings", "NamedArrays", "Tables"]
+git-tree-sha1 = "4693424929b4ec7ad703d68912a6ad6eff103cfe"
+uuid = "da1fdf0e-e0ff-5433-a45f-9bb5ff651cb1"
+version = "0.4.6"
 
 [[deps.FriBidi_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -736,9 +722,9 @@ version = "1.0.2"
 
 [[deps.HTTP]]
 deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "ExceptionUnwrapping", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
-git-tree-sha1 = "5eab648309e2e060198b45820af1a37182de3cce"
+git-tree-sha1 = "abbbb9ec3afd783a7cbd82ef01dcd088ea051398"
 uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-version = "1.10.0"
+version = "1.10.1"
 
 [[deps.HarfBuzz_jll]]
 deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "Graphite2_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Pkg"]
@@ -752,24 +738,6 @@ git-tree-sha1 = "f218fe3736ddf977e0e772bc9a586b2383da2685"
 uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 version = "0.3.23"
 
-[[deps.Hyperscript]]
-deps = ["Test"]
-git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
-uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
-version = "0.0.4"
-
-[[deps.HypertextLiteral]]
-deps = ["Tricks"]
-git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
-uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-version = "0.9.5"
-
-[[deps.IOCapture]]
-deps = ["Logging", "Random"]
-git-tree-sha1 = "d75853a0bdbfb1ac815478bacd89cd27b550ace6"
-uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "0.2.3"
-
 [[deps.InlineStrings]]
 deps = ["Parsers"]
 git-tree-sha1 = "9cc2baf75c6d09f9da536ddf58eb2f29dedaf461"
@@ -777,10 +745,10 @@ uuid = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
 version = "1.4.0"
 
 [[deps.IntelOpenMP_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "ad37c091f7d7daf900963171600d7c1c5c3ede32"
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "31d6adb719886d4e32e38197aae466e98881320b"
 uuid = "1d5cc7b8-4909-519e-a0f8-d0f5ad9712d0"
-version = "2023.2.0+0"
+version = "2024.0.0+0"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -809,9 +777,9 @@ version = "1.0.0"
 
 [[deps.JLFzf]]
 deps = ["Pipe", "REPL", "Random", "fzf_jll"]
-git-tree-sha1 = "9fb0b890adab1c0a4a475d4210d51f228bfc250d"
+git-tree-sha1 = "a53ebe394b71470c7f97c2e7e170d51df21b17af"
 uuid = "1019f520-868f-41f5-a6de-eb00f4b6a39c"
-version = "0.1.6"
+version = "0.1.7"
 
 [[deps.JLLWrappers]]
 deps = ["Artifacts", "Preferences"]
@@ -827,9 +795,9 @@ version = "0.21.4"
 
 [[deps.JpegTurbo_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "6f2675ef130a300a112286de91973805fcc5ffbc"
+git-tree-sha1 = "60b1194df0a3298f460063de985eae7b01bc011a"
 uuid = "aacddb02-875f-59d6-b918-886e6ef4fbf8"
-version = "2.1.91+0"
+version = "3.0.1+0"
 
 [[deps.KernelDensity]]
 deps = ["Distributions", "DocStringExtensions", "FFTW", "Interpolations", "StatsBase"]
@@ -989,16 +957,11 @@ git-tree-sha1 = "6c26c5e8a4203d43b5497be3ec5d4e0c3cde240a"
 uuid = "5ced341a-0733-55b8-9ab6-a4889d929147"
 version = "1.9.4+0"
 
-[[deps.MIMEs]]
-git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
-uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
-version = "0.1.4"
-
 [[deps.MKL_jll]]
-deps = ["Artifacts", "IntelOpenMP_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "Pkg"]
-git-tree-sha1 = "eb006abbd7041c28e0d16260e50a24f8f9104913"
+deps = ["Artifacts", "IntelOpenMP_jll", "JLLWrappers", "LazyArtifacts", "Libdl"]
+git-tree-sha1 = "72dc3cf284559eb8f53aa593fe62cb33f83ed0c0"
 uuid = "856f044c-d86e-5d09-b602-aeab76dc8ba7"
-version = "2023.2.0+0"
+version = "2024.0.0+0"
 
 [[deps.MacroTools]]
 deps = ["Markdown", "Random"]
@@ -1057,11 +1020,17 @@ git-tree-sha1 = "0877504529a3e5c3343c6f8b4c0381e57e4387e4"
 uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "1.0.2"
 
+[[deps.NamedArrays]]
+deps = ["Combinatorics", "DataStructures", "DelimitedFiles", "InvertedIndices", "LinearAlgebra", "Random", "Requires", "SparseArrays", "Statistics"]
+git-tree-sha1 = "6d42eca6c3a27dc79172d6d947ead136d88751bb"
+uuid = "86f7a689-2022-50b4-a561-43c23ac3c673"
+version = "0.10.0"
+
 [[deps.NearestNeighbors]]
 deps = ["Distances", "StaticArrays"]
-git-tree-sha1 = "2c3726ceb3388917602169bed973dbc97f1b51a8"
+git-tree-sha1 = "3ef8ff4f011295fd938a521cb605099cecf084ca"
 uuid = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
-version = "0.4.13"
+version = "0.4.15"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -1130,9 +1099,9 @@ version = "10.42.0+0"
 
 [[deps.PDMats]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
-git-tree-sha1 = "4e5be6bb265d33669f98eb55d2a57addd1eeb72c"
+git-tree-sha1 = "949347156c25054de2db3b166c52ac4728cbad65"
 uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
-version = "0.11.30"
+version = "0.11.31"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
@@ -1187,12 +1156,6 @@ version = "1.39.0"
     IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
     ImageInTerminal = "d8c32880-2388-543b-8c61-d9f865259254"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
-
-[[deps.PlutoUI]]
-deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "bd7c69c7f7173097e7b5e1be07cee2b8b7447f51"
-uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.54"
 
 [[deps.PooledArrays]]
 deps = ["DataAPI", "Future"]
@@ -1477,11 +1440,6 @@ git-tree-sha1 = "9a6ae7ed916312b41236fcef7e0af564ef934769"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.9.13"
 
-[[deps.Tricks]]
-git-tree-sha1 = "eae1bb484cd63b36999ee58be2de6c178105112f"
-uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
-version = "0.1.8"
-
 [[deps.URIs]]
 git-tree-sha1 = "67db6cc7b3821e19ebe75791a9dd19c9b1188f2b"
 uuid = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
@@ -1502,9 +1460,9 @@ version = "0.4.1"
 
 [[deps.Unitful]]
 deps = ["Dates", "LinearAlgebra", "Random"]
-git-tree-sha1 = "242982d62ff0d1671e9029b52743062739255c7e"
+git-tree-sha1 = "3c793be6df9dd77a0cf49d80984ef9ff996948fa"
 uuid = "1986cc42-f94f-5a68-af5c-568840ba703d"
-version = "1.18.0"
+version = "1.19.0"
 
     [deps.Unitful.extensions]
     ConstructionBaseUnitfulExt = "ConstructionBase"
@@ -1543,12 +1501,6 @@ git-tree-sha1 = "4528479aa01ee1b3b4cd0e6faef0e04cf16466da"
 uuid = "2381bf8a-dfd0-557d-9999-79630e7b1b91"
 version = "1.25.0+0"
 
-[[deps.WeakRefStrings]]
-deps = ["DataAPI", "InlineStrings", "Parsers"]
-git-tree-sha1 = "b1be2855ed9ed8eac54e5caff2afcdb442d52c23"
-uuid = "ea10d353-3f73-51f8-a26c-33c1cb351aa5"
-version = "1.4.2"
-
 [[deps.Widgets]]
 deps = ["Colors", "Dates", "Observables", "OrderedCollections"]
 git-tree-sha1 = "fcdae142c1cfc7d89de2d11e08721d0f2f86c98a"
@@ -1561,16 +1513,11 @@ git-tree-sha1 = "5f24e158cf4cee437052371455fe361f526da062"
 uuid = "efce3f68-66dc-5838-9240-27a6d6f5f9b6"
 version = "0.5.6"
 
-[[deps.WorkerUtilities]]
-git-tree-sha1 = "cd1659ba0d57b71a464a29e64dbc67cfe83d54e7"
-uuid = "76eceee3-57b5-4d4a-8e66-0e911cebbf60"
-version = "1.6.1"
-
 [[deps.XML2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Zlib_jll"]
-git-tree-sha1 = "da69178aacc095066bad1f69d2f59a60a1dd8ad1"
+git-tree-sha1 = "801cbe47eae69adc50f36c3caec4758d2650741b"
 uuid = "02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
-version = "2.12.0+0"
+version = "2.12.2+0"
 
 [[deps.XSLT_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libgcrypt_jll", "Libgpg_error_jll", "Libiconv_jll", "Pkg", "XML2_jll", "Zlib_jll"]
@@ -1746,10 +1693,10 @@ uuid = "35ca27e7-8b34-5b7f-bca9-bdc33f59eb06"
 version = "3.2.9+0"
 
 [[deps.fzf_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "47cf33e62e138b920039e8ff9f9841aafe1b733e"
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "a68c9655fbe6dfcab3d972808f1aafec151ce3f8"
 uuid = "214eeab7-80f7-51ab-84ad-2988db7cef09"
-version = "0.35.1+0"
+version = "0.43.0+0"
 
 [[deps.gperf_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1793,10 +1740,10 @@ uuid = "36db933b-70db-51c0-b978-0f229ee0e533"
 version = "1.18.0+0"
 
 [[deps.libpng_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
-git-tree-sha1 = "94d180a6d2b5e55e447e2d27a29ed04fe79eb30c"
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Zlib_jll"]
+git-tree-sha1 = "93284c28274d9e75218a416c65ec49d0e0fcdf3d"
 uuid = "b53b4c65-9356-5827-b1ea-8c7a1a84506f"
-version = "1.6.38+0"
+version = "1.6.40+0"
 
 [[deps.libvorbis_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Ogg_jll", "Pkg"]
@@ -1840,53 +1787,49 @@ version = "1.4.1+1"
 """
 
 # ╔═╡ Cell order:
-# ╟─434bde5e-8aa0-11ee-3754-b1dcab18fb02
-# ╠═eb8c5621-2e8a-4e20-ab9f-1c6549764aef
-# ╠═5cb9fcc0-e413-4583-a99e-caf1da9b4f1a
-# ╠═c2ba66d0-eebf-4275-97ca-323fb8b92fab
-# ╟─a783b2b7-7cef-4e2c-bd71-155e702718bf
-# ╠═62507a5c-f412-452e-9e0f-e94d5fda3505
-# ╠═aae4f172-636d-4b98-be05-354bd5e1cd5c
-# ╠═ee62356d-6573-4f50-910f-48189f80fb4a
-# ╟─161eb493-4251-4439-b106-26183503d86f
-# ╟─b5f3f110-36c2-435e-9a1e-efcb16f8629f
-# ╠═68d154e5-c6f5-4362-896b-7320ad79b038
-# ╠═ad688c6d-568e-499a-9ed6-b71816e90436
-# ╠═0bbb4932-7645-4728-b410-e9e39ffa5447
-# ╠═ceab62f1-164f-4ff9-a789-2be89cf0aeb7
-# ╟─8498657a-d4f3-44e7-932d-2dcd78ca1268
-# ╟─add96df8-389f-4f13-acc5-34df141c3415
-# ╠═dc8e8f65-99a4-4714-8956-6168b55890fd
-# ╠═6f1fe171-ca54-40ab-bdec-e56a5c4baa91
-# ╠═00c07ba9-3c5f-4e16-a5fc-a656975fafba
-# ╠═93c9dce6-b6ea-4932-a8ad-c016d30c95d5
-# ╟─d7be33a3-138a-4437-a7cd-87824b977cb8
-# ╠═3e1eb3b1-4efd-493e-b0a1-d0558c6edb89
-# ╟─bdd0b7f7-917b-41e1-a37a-8e66477f8c6b
-# ╠═bd44cdb2-1838-4d07-8cf8-8be7005ef1cb
-# ╠═5e5e62ad-237e-4638-bf2a-b2c5a00c06ca
-# ╠═828df9b7-baeb-4a18-ae7e-430df4de750e
-# ╟─27e7108d-22cd-4765-929c-162793e45dc2
-# ╠═eac3272b-d0a9-49b7-904d-402ef4195099
-# ╟─d1b26587-5013-45da-911b-fe4a98686a5c
-# ╠═1b7ba29f-59a3-4206-84aa-26533d85103c
-# ╠═87a57b01-1259-4329-a185-d956720968dc
-# ╠═0042b894-772d-48ef-8514-d304f3ce5350
-# ╠═e4d02130-fa0b-4307-ad31-d40c3811b014
-# ╟─c9f2a69e-118e-4d08-a500-0bf3039f9978
-# ╠═6c0314f4-761f-4f94-82dc-bab15b333328
-# ╠═1b8aa2d9-2201-4de1-8a02-b70780a15f18
-# ╠═76ff468c-87ba-43a2-b8c7-3bf7743dd11f
-# ╠═19d242b3-0c54-4ea7-b451-1637e87ae4ae
-# ╟─b5bed7d2-8e3a-431c-9ab8-bbcc866aad94
-# ╠═ddf10aea-a632-404d-846e-24a4b478a1c4
-# ╠═02603c9c-faa8-4f8d-a506-43ec13c0fe53
-# ╠═d3153809-de00-452b-bc2c-3f4b0cd30d55
-# ╠═8d6d2b19-9e19-4c9c-ae17-1a90d3bc7f23
-# ╟─f3b25312-23c8-4c3b-b8d6-f489c9180964
-# ╠═a1b480c2-38e5-40f1-a647-4d93fd1b4c69
-# ╟─db91e3c8-895a-4832-a34e-7470084d5081
-# ╠═bec77350-694e-4707-a217-27094bf915c8
-# ╠═fca80ef9-8be8-4409-bd25-f326d5e0fa4c
+# ╟─5cec8c62-8b9a-11ee-25c4-fb54675625c0
+# ╟─2639233c-826a-47ba-b525-c413265eb36d
+# ╠═68c56a2f-82f5-469b-a2fc-eb7e927072f7
+# ╠═132c6844-f2c5-45d4-8f4e-dd6fe70c5d8c
+# ╟─e0bb0cec-c6b8-4817-8062-fe71e2ae3aae
+# ╠═b28e4da6-1077-465f-97e4-6148da755570
+# ╟─a0bcbc18-a747-4ff3-8d9f-c1be76573dfd
+# ╠═2dc6fe3e-993b-4de1-94c4-e1f413ddc489
+# ╠═5952b63c-17a6-425c-93d8-e687603692af
+# ╟─66cf4f26-fd39-44aa-85f2-e2c6e8973fb6
+# ╟─69fd28f2-648d-4217-8a24-9ed10af503f8
+# ╠═09db85de-655e-484e-97ba-334441e57bd4
+# ╠═3c5ae761-f6c4-411c-b223-55294ea54112
+# ╟─4906f3dc-8357-4bb6-a6de-241412a66c95
+# ╠═e52b8ebb-368b-4b88-837d-7d12b93bf280
+# ╟─6b6e96ad-025c-41ae-bff3-49f711847d70
+# ╠═68dd45a1-8fc0-4cdd-83d5-ada81f7d180e
+# ╠═1371603c-5105-4bce-9a33-b1d7236c5549
+# ╟─527408bd-568e-4d0f-91ea-0f5d16f41583
+# ╠═421e2c27-c0f0-4c55-b4fa-c60b52d25036
+# ╟─006c95b7-e722-4546-9979-75cf04e23180
+# ╠═2f95f567-98d5-4cb9-8fed-0028dba3c705
+# ╠═f1c6b6e8-4d4f-4d6c-b8c0-e35b93b74f68
+# ╟─54394754-e707-4731-a901-9b17b1a377e4
+# ╠═d299e2d9-abee-4566-9b55-2f30c8d581dd
+# ╟─74495fe4-5302-4486-bce6-6ee6ae7a460a
+# ╠═16a11228-46ab-48d9-946f-84ad0b31a129
+# ╠═32d3316e-07fb-483c-9617-32693a4bb341
+# ╟─269ea9e3-68a8-4899-a7c7-3f657adad4bb
+# ╠═cd510e99-a544-4eb8-8f77-140f43628344
+# ╠═cb9a3a0f-c1bd-45f7-b2bb-0f089570ef9c
+# ╟─86416c72-5d0c-4ae5-a876-744bc7db6805
+# ╠═5d008880-8da7-4a2c-a05b-69042d8679b1
+# ╟─7887ea9f-1284-43bb-8720-037c8536a93c
+# ╠═f4f4ef9a-218c-4aae-b490-61fa7fffaa65
+# ╠═2b322a80-1a61-4c7a-ba8d-65ffaadfee15
+# ╟─d806a99c-9f22-4e55-b39d-5dea9d209af0
+# ╠═f71600aa-1bef-485c-800e-17d7b4fb1b56
+# ╟─4d123fcb-1e4e-4192-adae-0ffeee0c5b5e
+# ╠═3ae1d593-2231-4db8-b56f-04ad8f58b1c3
+# ╟─2d7ba549-6380-4242-8cc6-708fae14d8eb
+# ╟─2c3f261b-550a-4938-b479-d1c55470563b
+# ╠═80582433-b403-43b9-9950-f4698527735c
+# ╟─ded2d598-e592-48c1-aa96-44f8d3aa9b7c
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
